@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 20 14% 4%;
+  --muted: 60 5% 96%;
+  --muted-foreground: 25 5% 45%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14% 4%;
+  --card: 0 0% 100%;
+  --card-foreground: 20 14% 4%;
+  --border: 20 6% 90%;
+  --input: 20 6% 90%;
+  --primary: 207 90% 54%;
+  --primary-foreground: 211 100% 99%;
+  --secondary: 60 5% 96%;
+  --secondary-foreground: 24 10% 10%;
+  --accent: 14 100% 57%;
+  --accent-foreground: 60 9% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 60 9% 98%;
+  --ring: 20 14% 4%;
+  --radius: 0.5rem;
+  
+  /* Custom PlayHub colors */
+  --playhub-primary: 207 90% 54%;
+  --playhub-secondary: 122 39% 49%;
+  --playhub-accent: 14 100% 57%;
+}
+
+.dark {
+  --background: 240 10% 4%;
+  --foreground: 0 0% 98%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 65%;
+  --popover: 240 10% 4%;
+  --popover-foreground: 0 0% 98%;
+  --card: 240 10% 4%;
+  --card-foreground: 0 0% 98%;
+  --border: 240 4% 16%;
+  --input: 240 4% 16%;
+  --primary: 207 90% 54%;
+  --primary-foreground: 211 100% 99%;
+  --secondary: 240 4% 16%;
+  --secondary-foreground: 0 0% 98%;
+  --accent: 240 4% 16%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 0 0% 98%;
+  --ring: 240 5% 84%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-green-500 hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  
+  .btn-accent {
+    @apply bg-orange-500 hover:bg-orange-600 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  
+  .shadow-material {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1);
+  }
+  
+  .shadow-material-lg {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12), 0 16px 32px rgba(0,0,0,0.12);
+  }
+  
+  .slot-available {
+    @apply border-green-200 bg-green-50 hover:bg-green-100 text-green-700 transition-colors cursor-pointer;
+  }
+  
+  .slot-peak {
+    @apply border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 transition-colors cursor-pointer;
+  }
+  
+  .slot-booked {
+    @apply border-red-200 bg-red-50 text-red-400 cursor-not-allowed;
+  }
+  
+  .slot-selected {
+    @apply ring-2 ring-blue-500 bg-blue-100;
+  }
+}
+
+@layer utilities {
+  .text-primary-custom {
+    color: hsl(var(--playhub-primary));
+  }
+  
+  .bg-primary-custom {
+    background-color: hsl(var(--playhub-primary));
+  }
+  
+  .text-secondary-custom {
+    color: hsl(var(--playhub-secondary));
+  }
+  
+  .bg-secondary-custom {
+    background-color: hsl(var(--playhub-secondary));
+  }
+}
