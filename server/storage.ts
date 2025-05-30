@@ -123,12 +123,12 @@ export class DatabaseStorage implements IStorage {
     limit?: number;
     offset?: number;
   } = {}): Promise<Venue[]> {
-    let query = db.select().from(venues);
-    
     const conditions = [];
     if (filters.status) conditions.push(eq(venues.status, filters.status as any));
     if (filters.city) conditions.push(like(venues.city, `%${filters.city}%`));
     if (filters.ownerId) conditions.push(eq(venues.ownerId, filters.ownerId));
+    
+    let query = db.select().from(venues);
     
     if (conditions.length > 0) {
       query = query.where(and(...conditions));
@@ -233,12 +233,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBookingsByVenue(venueId: number): Promise<Booking[]> {
-    return await db
-      .select()
+    const result = await db
+      .select({
+        id: bookings.id,
+        userId: bookings.userId,
+        fieldId: bookings.fieldId,
+        timeSlotId: bookings.timeSlotId,
+        date: bookings.date,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        totalAmount: bookings.totalAmount,
+        status: bookings.status,
+        paymentIntentId: bookings.paymentIntentId,
+        cancellationReason: bookings.cancellationReason,
+        notes: bookings.notes,
+        createdAt: bookings.createdAt,
+        updatedAt: bookings.updatedAt,
+      })
       .from(bookings)
       .innerJoin(fields, eq(bookings.fieldId, fields.id))
       .where(eq(fields.venueId, venueId))
       .orderBy(desc(bookings.createdAt));
+    
+    return result;
   }
 
   async createBooking(booking: InsertBooking): Promise<Booking> {
@@ -271,19 +288,17 @@ export class DatabaseStorage implements IStorage {
   }): Promise<Venue[]> {
     // This is a simplified search implementation
     // In production, you'd want more sophisticated geospatial queries and full-text search
-    let query = db.select().from(venues).where(eq(venues.status, 'approved'));
-    
     const conditions = [eq(venues.status, 'approved')];
     
     if (params.city) {
       conditions.push(like(venues.city, `%${params.city}%`));
     }
     
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    const query = db.select().from(venues)
+      .where(and(...conditions))
+      .orderBy(desc(venues.rating));
     
-    return await query.orderBy(desc(venues.rating));
+    return await query;
   }
 
   async getVenueStats(venueId: number): Promise<{
