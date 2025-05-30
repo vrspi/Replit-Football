@@ -13,12 +13,13 @@ import VenueSearch from "@/pages/venue-search";
 import Auth from "@/pages/auth";
 import VenueDashboard from "@/pages/venue-dashboard";
 import PlayerProfile from "@/pages/player-profile";
+import Bookings from "@/pages/bookings";
 import AdminDashboard from "@/pages/admin-dashboard";
 import NotFound from "@/pages/not-found";
 
 // Protected Route component
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isLoading } = useQuery<any>({
     queryKey: ['/api/auth/me'],
     enabled: authService.isAuthenticated(),
     retry: false,
@@ -37,7 +38,7 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode;
     return null;
   }
 
-  if (requiredRole && user.role !== requiredRole) {
+  if (requiredRole && user?.role !== requiredRole) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -69,7 +70,7 @@ function Router() {
         
         <Route path="/bookings">
           <ProtectedRoute>
-            <PlayerProfile />
+            <Bookings />
           </ProtectedRoute>
         </Route>
         
