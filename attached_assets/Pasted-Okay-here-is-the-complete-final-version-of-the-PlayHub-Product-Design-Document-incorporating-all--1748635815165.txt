@@ -1,0 +1,502 @@
+Okay, here is the complete, final version of the PlayHub Product Design Document, incorporating all the feedback and refinements.
+
+Product / Project Design Document: PlayHub (v1.0 Final)
+
+1. Purpose & Scope
+Provide amateur footballers and venue owners with a self-service, real-time booking ecosystem that is performant, secure, extensible, and ready to scale nationwide. This document covers the public website, back-end services, DevOps, and governance. Native mobile apps are out of scope for the first release (MVP). The platform will be built entirely on free and open-source software.
+
+2. Stakeholders
+Role
+Responsibility
+Product Owner
+Defines vision, backlog, priorities, GTM strategy
+Tech Lead
+Owns architecture, tech stack, code quality, DevOps
+Venue Admins
+Manage facilities, calendars, pricing, payouts
+Players
+Discover, book, pay, review, manage bookings/profile
+Support Team
+Tier-1 help-desk, dispute resolution, user verification
+Marketing Team
+(Future) User acquisition, promotions
+Finance/Legal
+(Future) Payout reconciliation, compliance oversight
+
+3. Glossary (extract)
+	•	Slot: An individual rentable time window for a field/court with a specific price.
+	•	Booking: A confirmed reservation of a Slot by a Player.
+	•	MatchListing: A post created by a player (or automatically by the system for a booked slot) looking for extra teammates or opponents.
+	•	MVP: Minimum Viable Product (Phase 1 release).
+	•	IAM: Identity and Access Management.
+	•	PII: Personally Identifiable Information.
+	•	SLO: Service Level Objective.
+	•	SBOM: Software Bill of Materials.
+	•	ADR: Architecture Decision Record.
+
+4. High-Level Feature Set
+Group
+Feature (MVP)
+Phase
+Venue
+Online onboarding (KYC-light), document upload, facility & field CRUD, slot & pricing management (basic rules), dynamic calendar view, booking management.
+1
+Player
+User registration & profile, advanced search (geo, sport, price, date/time, amenities), real-time availability check, secure multi-step booking, integrated payment, booking history & cancellation (policy-based).
+1
+Core Platform
+Admin dashboard for user/venue management & basic reporting.
+1
+Collaboration
+Match chatroom (per booking/listing), "Find players/matches" board (MatchListings).
+2
+Reviews
+Rating & review workflow for venues and fields (moderated).
+2
+Notifications
+Email notifications (booking confirmation, reminders, cancellations, password reset).
+1 (Basic), 2 (Expanded)
+Analytics
+Dashboards for venue KPIs (occupancy, revenue), player activity.
+3
+API
+Public API for strategic partners (e.g., sports communities).
+3
+Feature Flags
+System for dark launches and gradual rollouts (e.g., Unleash self-hosted).
+1 (Setup), Ongoing
+I18n / L10n
+Support for multiple languages (e.g., Arabic, French).
+2 (Q4 2025 start)
+
+5. Functional Requirements (excerpt & additions)
+	•	FR-01: A Venue Admin can CRUD facilities, fields, define sport types, basic pricing rules (e.g., peak/off-peak per slot/hour), and block out unavailable times via adminState on slots.
+	•	FR-02: A Player can filter venues/fields by sport, price range, date/time, geo-location (radius search), and amenities.
+	•	FR-03: Calendar views must show authoritative availability in ≤ 150 ms (p95) for a typical field's monthly view.
+	•	FR-04: Payments and booking confirmation must occur as a single logical atomic transaction from the user's perspective (Saga pattern).
+	•	FR-05: The system must prevent double-booking of any slot, even under high concurrent request loads and chaotic conditions.
+	•	FR-06: Users must be able to register via email/password and OAuth2 providers (managed by Keycloak).
+	•	FR-07: Venue Admins must be able to upload verification documents; these must be stored securely and access controlled.
+	•	FR-08: Players must be able to cancel bookings according to a venue-defined cancellation policy.
+	•	FR-09: The system shall send email notifications for key events.
+	•	FR-10: Search results for venues should be sortable by distance, price, and rating (Phase 2).
+
+6. Non-Functional Requirements (enhanced)
+Category
+Target
+Performance
+API TTFB: ≤ 200 ms (p95). Critical Page Loads: ≤ 1s. Search /venues latency: ≤ 300 ms (p95) over 5 min.
+Scalability
+Horizontal scalability to 10,000 concurrent users (MVP), path to 100k+. Independent service scaling.
+Availability
+Core booking flow: 99.9% monthly uptime (SLO). Booking success rate: ≥ 99.5% per 30 min window (SLO).
+Security
+OWASP Top-10 2021 compliant. GDPR ready. PII encrypted. Regular vulnerability scans. PCI-DSS SAQ-A.
+Data Integrity
+No data loss for bookings, payments, user accounts. Strong consistency for booking state. Monotonic timestamps via NTP (e.g., Chrony).
+Cost
+FOSS stack. Minimal cloud infra start (~$20-50/month for MVP), scaling with usage.
+Maintainability
+Well-documented (incl. ADRs), modular, high test coverage (>80% unit, >70% integration). Easy onboarding.
+Observability
+Comprehensive logging, metrics, tracing. Centralized monitoring dashboards. Error budget burn alerts. Synthetic canaries.
+Recoverability
+RPO < 1 hour, RTO < 4 hours for critical services. Disaster Recovery Plan tested.
+Usability
+Intuitive UI/UX. WCAG 2.1 AA accessibility where feasible.
+
+7. System Architecture
+      graph TD
+    subgraph User Layer
+        WebApp[Web Client (Next.js on Vercel/Node.js)]
+    end
+
+    subgraph Edge Layer
+        APIGW[API Gateway (Traefik / Kong OSS)]
+    end
+
+    subgraph Application Layer
+        BFF[BFF (NestJS)]
+        BookingSvc[Booking Service (NestJS)]
+        UserSvc[User & Venue Service (NestJS)]
+        PaymentSvc[Payment Service (NestJS)]
+        NotificationSvc[Notification Service (NestJS)]
+        SearchSvc[Search Service (NestJS + PostGIS/Typesense v0.24/Meilisearch)]
+        ChatSvc[Chat Service (NestJS + WebSockets)]
+        PricingSvc[(Future) Pricing Service (NestJS)]
+    end
+
+    subgraph Messaging Layer
+        Broker[Message Broker (RabbitMQ Cluster / Future: NATS)]
+    end
+
+    subgraph Data Persistence Layer
+        PostgresDB[PostgreSQL 16+ Cluster (Primary/Replica + PostGIS)]
+        RedisCache[Redis Cluster (Cache & Sessions)]
+        ObjectStore[Object Storage (MinIO Cluster - Apache 2.0 Server)]
+    end
+
+    subgraph Identity & Auth Layer
+        IAM[Keycloak Cluster]
+    end
+
+    subgraph External Services
+        PaymentGateway[Payment Gateway (Cal.com module -> Stripe/PayPal)]
+        EmailSender[Email Service (Self-hosted Mailu / SMTP relay)]
+    end
+
+    %% Connections
+    WebApp -- HTTPS/443 --> APIGW
+    APIGW -- REST/gRPC --> BFF
+
+    BFF -- REST/gRPC --> BookingSvc
+    BFF -- REST/gRPC --> UserSvc
+    BFF -- REST/gRPC --> PaymentSvc
+    BFF -- REST/gRPC --> SearchSvc
+    BFF -- WebSockets --> ChatSvc
+    BFF -- REST/gRPC --> PricingSvc
+
+    BookingSvc -- CRUD, Locks --> PostgresDB
+    BookingSvc -- Publishes Events --> Broker
+    BookingSvc -- Uses Cache --> RedisCache
+
+    UserSvc -- CRUD --> PostgresDB
+    UserSvc -- Publishes Events --> Broker
+    UserSvc -- Document Metadata --> PostgresDB
+    UserSvc -- Document Files --> ObjectStore
+    UserSvc -- User Auth Info --> IAM
+
+    PaymentSvc -- CRUD --> PostgresDB
+    PaymentSvc -- Interacts --> PaymentGateway
+    PaymentSvc -- Subscribes to Events & Publishes --> Broker
+
+    NotificationSvc -- Subscribes to Events --> Broker
+    NotificationSvc -- Sends Via --> EmailSender
+    NotificationSvc -- User Preferences --> PostgresDB
+
+    SearchSvc -- Reads Denormalized Data --> PostgresDB
+    SearchSvc -- (Optionally) Indexes Data In --> Typesense/Meilisearch
+    SearchSvc -- Geo Queries (PostGIS) --> PostgresDB
+
+    ChatSvc -- Session/Presence, Ephemeral Msgs --> RedisCache
+    ChatSvc -- Persistent Chat History (Optional, with retention policy) --> PostgresDB
+    ChatSvc -- Pub/Sub for Broadcast --> RedisCache %% Or RabbitMQ Fanout
+
+    PricingSvc -- Reads Config/Rules --> PostgresDB %% (Future state)
+
+    %% Keycloak Integration
+    WebApp -- OAuth2/OIDC Redirects --> IAM
+    APIGW -- JWT Validation (delegated or introspection with Keycloak) --> IAM
+    BFF -- Token Exchange/Validation --> IAM
+    UserSvc -- User Sync (optional) --> IAM
+    
+
+	•	API Gateway (Traefik / Kong OSS): Traefik for simplicity and Docker integration; Kong OSS considered if advanced Keycloak introspection offload or richer plugin ecosystem is needed at the edge. Both offer FOSS rate-limiting/WAF.
+	•	Message Broker (RabbitMQ / NATS): RabbitMQ for initial scale. An ADR will document the rationale ("Why RabbitMQ first, NATS later for >5M events/day or >50k chat listeners"). Abstract messaging interface planned for easier future migration.
+	•	Architecture Decision Records (ADRs): Key architectural decisions will be documented using an ADR template stored in the main backend repository. The first ADR will cover the message broker choice.
+	•	MinIO Object Storage: Core server used under Apache-2.0 license. Gateway component (if used separately) is AGPL-3.0.
+
+8. Technology Stack & Licences
+Layer
+Component
+Licence
+Reason
+Front-end
+Next.js 14+ (React 18+)
+MIT
+Hybrid SSR/ISR/CSR, excellent DX, performance, SEO, large ecosystem.
+Styling
+Tailwind CSS 3+
+MIT
+Utility-first, rapid development, consistent design, highly configurable.
+State Management
+Zustand / Jotai / React Query (TanStack Query)
+MIT
+Lightweight, effective for client and server state management with Next.js.
+Calendar UI
+FullCalendar / React Big Calendar
+MIT
+Robust, feature-rich time-grid views, good community support.
+Back-end Framework
+NestJS 10+ (Node.js 20+ LTS)
+MIT
+TypeScript, modular, scalable, good for microservices, DI, Prisma integration.
+ORM
+Prisma 5+
+Apache-2.0
+Type-safe database access, migrations, intuitive API.
+Database
+PostgreSQL 16+ with PostGIS extension
+PostgreSQL Lic.
+ACID, JSONB, GIS, FTS, robust, mature, scalable (replication, partitioning). Encryption: filesystem (LUKS/BitLocker) + pgcrypto for column-level; evaluate pg_tde/native TDE when stable.
+Cache
+Redis 7+ Cluster Mode
+BSD-3
+In-memory speed for caching, sessions, queues, Pub/Sub.
+Messaging
+RabbitMQ 3.12+ Cluster
+MPL-2.0
+Mature, reliable message broker. (See Arch. for future options).
+AuthN/AuthZ
+Keycloak 26+ Cluster
+Apache-2.0
+Externalized IAM, OAuth2/OIDC, SSO, fine-grained authorization, federation.
+Payments
+Cal.com Payments module (self-hosted)
+AGPL-3.0
+Handles marketplace split payments using Stripe/PayPal SDKs. Strict AGPL compliance if modified.
+Object Storage
+MinIO Server
+Apache-2.0
+S3-compatible, scalable, for documents & media. (MinIO Gateway component is AGPL-3.0 if used).
+Search (Phased)
+PostgreSQL FTS/PostGIS -> Typesense v0.24.x (Apache-2.0) / Meilisearch (MIT)
+PostgreSQL Lic. / Apache-2.0/ MIT
+Start with PG; switch if p95 > 250ms or index > 2M rows. Note: Typesense v0.25+ is SSPL; use v0.24.x for Apache-2.0 or choose Meilisearch if SSPL is a concern.
+API Gateway
+Traefik Proxy / Kong API Gateway (OSS)
+MIT / Apache-2.0
+Reverse proxy, load balancing, SSL, rate limiting, routing.
+DevOps
+Docker + Compose, GitHub Actions
+Apache/MIT
+Containerization, CI/CD pipeline automation.
+Container Orchest.
+Docker Swarm (simpler) / Kubernetes (K3s/RKE2 for self-host)
+Apache-2.0
+For scaling beyond single-node Compose (Phase 2/3).
+Observability
+Prometheus, Grafana, Loki, OpenTelemetry (Jaeger/SigNoz for backend)
+Apache-2.0
+Metrics, dashboards, log aggregation, distributed tracing.
+Feature Flags
+Unleash (self-hosted) / equivalent FOSS
+Apache-2.0
+Decouple deployment from release.
+
+9. Detailed Component Notes
+9.1 Booking Service
+	•	API Contracts: OpenAPI 3.1 spec, generated from NestJS controllers.
+	•	DB Schema: Versioned via Prisma Migrate. Strict schema validation.
+	•	Double-Booking Prevention: Optimistic locking on slot records, pessimistic locking (SELECT ... FOR UPDATEor PostgreSQL advisory locks) for critical booking creation. Idempotency keys for POST /bookings.
+	•	Slot Availability Logic: Efficient querying; consider materialized availability in Redis for popular fields/dates.
+9.2 User & Venue Service
+	•	Document Storage: Files streamed to MinIO. Metadata in PostgreSQL. Access via pre-signed URLs.
+	•	Verification Workflow: State machine for venue/document approval.
+9.3 Calendar Rendering & Availability
+	•	Next.js page fetches availability from BFF. BFF aggregates from BookingSvc.
+	•	Caching Strategy: Cache at BookingSvc/BFF (Redis). SWR/React Query client-side with short revalidation. WebSocket invalidation for real-time updates.
+9.4 Payment Flow (Saga Pattern)
+	1	Player hits "Book now" -> POST /api/v1/bookings.
+	2	BookingSvc: Verifies availability, creates Booking (status = PENDING_PAYMENT), (optional) short-term Redis hold, publishes BookingInitiated.
+	3	PaymentSvc (subscribes to BookingInitiated): Creates payment intent, returns client secret/redirect.
+	4	Front-end initiates payment (Cal.com iframe/SDK).
+	5	Payment Gateway Webhook (payment_intent.succeeded) -> PaymentSvc: Validates, publishes PaymentSucceeded.
+	6	Payment Gateway Webhook (payment_intent.failed) -> PaymentSvc: Publishes PaymentFailed.
+	7	BookingSvc (subscribes to PaymentSucceeded): Updates Booking status = CONFIRMED, publishes BookingConfirmed.
+	8	BookingSvc (subscribes to PaymentFailed / hold expiry): Updates Booking status = PAYMENT_FAILED or CANCELLED_NO_PAYMENT, releases slot.
+	•	Compensating Transactions: Required for failures post-payment.
+9.5 Real-Time Chat
+	•	NestJS WebSocket gateway (@nestjs/websockets + ws). JWT authentication during handshake.
+	•	Redis Pub/Sub for broadcasting.
+	•	Chat History Retention: Default 30-90 days (configurable), then purged to limit storage/GDPR exposure, unless actively part of an ongoing dispute or critical record.
+9.6 Search Service Details
+	•	MVP (Postgres-based): PostGIS (GiST indexes), Full-Text Search (tsvector with GIN).
+	•	Trigger for Dedicated Engine (Typesense v0.24.x / Meilisearch): P95 search latency > 250ms or index size > ~2M rows. Data synced via RabbitMQ events.
+9.7 Pricing Engine
+	•	Initial rules in Field.pricingRules (JSONB).
+	•	Complex rules (e.g., member discounts, dynamic promotions) may necessitate a dedicated PricingSvc in 2026+.
+
+10. Data Model (simplified with key attributes & relations)
+	•	User (Profiles)
+	◦	id (UUID, PK), authId (String, FK to Keycloak), email (String, Unique), displayName (String), roles(JSONB), isEmailVerified (Boolean), createdAt, updatedAt.
+	•	Venue
+	◦	id (UUID, PK), ownerId (UUID, FK to User), name (String), addressLine1, city, postalCode, country, location (Geography(Point, 4326)), amenities (JSONB), openingHours (JSONB), status (Enum), slug (String, Unique), createdAt, updatedAt.
+	•	Field
+	◦	id (UUID, PK), venueId (UUID, FK to Venue), name (String), sportType (String), defaultPricePerHour(Decimal), pricingRules (JSONB), isActive (Boolean), createdAt, updatedAt.
+	•	Slot
+	◦	id (UUID, PK), fieldId (UUID, FK to Field), startTime (TimestampTZ), endTime (TimestampTZ), price(Decimal).
+	◦	bookingState (Enum: available, held_provisional, booked, Default: available).
+	◦	adminState (Enum: open, blocked_admin, Default: open).
+	◦	Constraint: UNIQUE (fieldId, startTime).
+	•	Booking
+	◦	id (UUID, PK), slotId (UUID, Unique FK to Slot), payerId (UUID, FK to User), totalAmount (Decimal), currency (String), paymentIntentId (String), status (Enum: pending_payment, confirmed, cancelled_by_player, etc.), bookedAt (TimestampTZ), cancellationPolicySnapshot (JSONB), createdAt, updatedAt.
+	•	BookingPlayer (Join Table): bookingId (UUID, FK), userId (UUID, FK).
+	•	MatchListing
+	◦	id (UUID, PK), bookingId (UUID, FK, Nullable), fieldId (UUID, FK), creatorId (UUID, FK to User), title(String), proposedStartTime (TimestampTZ), playersNeeded (Integer), status (Enum). Data Retention: Stale MatchListings (e.g., associated slot end time + 30 days and no activity) to be archived or purged.
+	•	Review
+	◦	id (UUID, PK), reviewerId (UUID, FK to User), bookingId (UUID, FK to Booking), venueId (UUID, FK to Venue, Nullable), fieldId (UUID, FK to Field, Nullable), rating (SmallInt), comment (Text), moderationStatus (Enum).
+	◦	Constraint: UNIQUE (reviewerId, bookingId).
+	•	PaymentTransaction: id (UUID, PK), bookingId (UUID, FK), providerTransactionId (String, Unique), amount(Decimal), status (Enum).
+	•	Document: id (UUID, PK), uploaderId (UUID, FK), venueId (UUID, FK), documentType (String), storagePath(String), status (Enum).
+	•	NotificationLog: id (UUID, PK), userId (UUID, FK), type (String), channel (Enum), status (Enum).
+Indexes: All FKs indexed. Composite indexes for common queries. GiST on Venue.location. GIN on JSONB fields.
+
+11. API Overview (RESTful, versioned /v1/)
+	•	Authentication: JWT Bearer token (Keycloak issued). Roles enforce access.
+	•	Public Endpoints (No Auth):
+	◦	GET /venues?lat=..&lng=..&sport=..&date=..
+	◦	GET /venues/{venueIdOrSlug}, GET /venues/{venueIdOrSlug}/fields
+	◦	GET /fields/{fieldId}, GET /fields/{fieldId}/availability?startDate=..&endDate=..
+	◦	GET /match-listings, GET /match-listings/{listingId}
+	•	Player Endpoints (Role: player):
+	◦	POST /auth/register, POST /auth/login, GET /users/me, PATCH /users/me
+	◦	POST /bookings, GET /users/me/bookings, GET /bookings/{bookingId}, POST /bookings/{bookingId}/cancel
+	◦	POST /match-listings, PATCH /match-listings/{listingId}
+	◦	POST /reviews
+	•	Venue Admin Endpoints (Role: venue_admin):
+	◦	GET /users/me/venues, POST /venues, PATCH /venues/{venueId}
+	◦	POST /venues/{venueId}/documents, GET /venues/{venueId}/documents
+	◦	POST /venues/{venueId}/fields, PATCH /fields/{fieldId}, DELETE /fields/{fieldId}
+	◦	POST /fields/{fieldId}/slots, PATCH /slots/{slotId}, DELETE /slots/{slotId}
+	◦	GET /venues/{venueId}/bookings, POST /bookings/{bookingId}/venue-cancel
+	•	Payment Webhooks (Internal, Secured): POST /webhooks/payments/{provider}
+	•	Chat Endpoints (WebSocket Gateway): WS /chat (AuthN via JWT).
+
+12. Security & Privacy
+	•	Transport: HTTPS everywhere (HSTS). Phase 2 Hardening: Implement mTLS for internal service-to-service communication.
+	•	Authentication & Authorization: Keycloak (OIDC/OAuth2). Short-lived JWT access tokens, refresh tokens. RBAC.
+	•	Secrets Management: HashiCorp Vault or cloud KMS. Key Rotation Policy: JWT signing keys, DB credentials, MinIO access keys rotated every 90 days (automated via Vault where possible).
+	•	Input Validation: Rigorous validation at API Gateway/BFF and service level (e.g., class-validator).
+	•	Output Encoding, CSP, CORS: Standard best practices.
+	•	Rate Limiting & Brute Force Protection: Implemented at API Gateway and Keycloak.
+	•	Data Encryption:
+	◦	At Rest: PostgreSQL: Filesystem-level encryption (e.g., LUKS, BitLocker) for whole-disk protection. pgcrypto for column-level encryption of specific highly sensitive PII. Evaluate pg_tde or forthcoming native TDE features in PostgreSQL once stable and production-ready. MinIO: Server-side encryption.
+	◦	In Transit: TLS 1.2+ for all communication.
+	•	GDPR Compliance:
+	◦	PII Inventory & Data Mapping: Maintain a detailed PII inventory (see §19 Next Deliverables) mapping fields to purpose, legal basis, retention, etc., for GDPR Art. 30.
+	◦	Data Subject Rights: Endpoints for access, portability, and "right to be forgotten" (anonymization/deletion).
+	◦	Consent management and Data Minimization (e.g., chat history, MatchListing purge).
+	•	PCI-DSS Compliance: SAQ-A (no cardholder data stored/processed by PlayHub).
+	•	Dependency Scanning: Automated scanning (e.g., GitHub Dependabot, Snyk, OSV-Scanner).
+	•	WAF (Web Application Firewall): Consider ModSecurity with Traefik or cloud WAF.
+	•	Threat Modeling: Conduct internal threat modeling workshops post-MVP and periodically to maintain OWASP/GDPR alignment.
+	•	Regular Audits: Periodic third-party security audits and penetration tests (post-MVP).
+
+13. DevOps Pipeline
+	•	Development: Local dev with Docker Compose. DevEx Enhancement: make dev script to spin up entire environment and seed Keycloak with default realms/roles/users. Git pre-commit hooks.
+	•	CI (Continuous Integration) - GitHub Actions:
+	◦	On PR/merge: Lint, Format Check, Unit Tests (Jest), Integration Tests (Testcontainers), Build Docker images.
+	◦	Security: SAST (SonarCloud/CodeQL), Dependency Vulnerability Scan (OSV-Scanner/Snyk), Licence Compliance Check.
+	◦	SBOM Generation: Generate CycloneDX SBOMs (using Syft) per image; publish as GitHub Release assets.
+	◦	Build and push versioned Docker images to container registry (e.g., GHCR).
+	•	CD (Continuous Deployment) - GitHub Actions:
+	◦	Staging: Automatic deployment to staging environment on merge to develop. Run E2E tests (Playwright).
+	◦	Production: Manual trigger or automatic deployment on merge/tag to main (after staging approval). Blue/Green or Canary deployment strategy.
+	◦	DB Schema Guardrails: Online, backward-compatible migrations only. Never drop columns until 2+ versions later. CD Steps: Pre-deploy tasks -> Run DB migrations (inactive env) -> Deploy app (inactive env) -> Smoke tests -> Toggle traffic -> Monitor.
+	•	Containerization: Multi-stage Dockerfiles (Node 20-slim, official images).
+	•	Orchestration: Docker Compose (MVP) -> Kubernetes (K3s/RKE2 for self-host, Phase 2/3).
+	•	Infrastructure as Code (IaC): Terraform or Pulumi.
+	•	Reverse Proxy / Ingress: Traefik Proxy.
+	•	Configuration Management: Environment variables, Docker secrets, Vault integration. System Configuration:Ensure all nodes use NTP (e.g., Chrony) for consistent time synchronization critical for booking timestamps.
+	•	Observability (Prometheus, Grafana, Loki, OpenTelemetry):
+	◦	Logging: Centralized with Loki. Structured JSON logs.
+	◦	Metrics: Prometheus.
+	◦	Dashboards: Grafana.
+	◦	Tracing: OpenTelemetry SDKs -> Jaeger/SigNoz.
+	◦	SLOs Defined:
+	▪	Search /venues API latency: ≤ 300 ms (p95) over trailing 5 min.
+	▪	Booking success rate (API): ≥ 99.5 % per 30 min window.
+	▪	Core Booking Flow Availability (measured by synthetic canary): ≥ 99.9% monthly.
+	◦	Alerting: Alertmanager on error budget burn. Runbooks: Alerts link to predefined runbook URLs in repository (e.g., /docs/runbooks/ALERT_NAME.md).
+	◦	Synthetic Monitoring: Implement canaries (e.g., k6 script run by CI) performing a test booking on a dedicated "test" field every ~5 minutes for early warning of critical path failures.
+	•	Backup & Recovery: PostgreSQL PITR (e.g., wal-g to MinIO). MinIO replication/versioning. Documented and tested Disaster Recovery Plan.
+	•	Feature Management: FOSS feature flag system (e.g., Unleash self-hosted) for dark launches and gradual rollouts.
+
+14. Testing Strategy
+	•	Unit Tests (Jest): Front-end & Back-end. Target >80% code coverage.
+	•	Integration Tests (Jest + Testcontainers): Service interactions with real DBs, Keycloak, RabbitMQ. Target >70% coverage of critical paths.
+	•	E2E (End-to-End) Tests (Playwright): Simulate user flows in CI against staging.
+	•	Load & Performance Tests (k6): Target NFRs & SLOs. Identify bottlenecks.
+	•	Security Testing:
+	◦	SAST (SonarCloud/CodeQL) & DAST (OWASP ZAP) in CI.
+	◦	Penetration Testing: Annually or pre-major release.
+	◦	Automated Privacy Validation: Scripts to test unauthorized access to other users' data (e.g., pre-signed URL spoofing, direct object reference attempts); must always fail.
+	•	Chaos Engineering (Lightweight, Post-MVP): In staging, use tools like Pumba/LitmusChaos to randomly terminate BookingSvc pods during k6 load tests to verify resilience (e.g., zero double-bookings).
+	•	Usability Testing: With representative users.
+	•	Accessibility Testing (a11y): Automated tools (Axe) and manual checks (WCAG).
+
+15. MVP Cut-Line
+	•	Venue Features: Streamlined online onboarding (manual approval), facility & field CRUD, basic slot & pricing, field calendar, view bookings. Document upload.
+	•	Player Features: Email/password registration & login (Keycloak), profile, basic search, view venue/field details, real-time availability, booking flow with Cal.com payment, booking confirmation (email), booking history.
+	•	Admin Panel (Super Admin): User management, venue approval, view all bookings.
+	•	Core Backend: UserSvc, BookingSvc, PaymentSvc (webhooks), basic NotificationSvc (email). PostgreSQL, Redis, RabbitMQ, Keycloak, MinIO.
+	•	Excludes for MVP: Advanced pricing, player-to-player chat, match listings board, reviews & ratings, analytics dashboards, advanced notifications, automated document verification.
+
+16. Roadmap (quarterly - with I18n & triggers)
+Q
+Milestone
+Key Focus / Technologies
+Q3 2025
+MVP Launch: Pilot city, < 10 venues. Core booking & payment flow validated.
+Core stack setup, basic CI/CD.
+Q4 2025
+Enhance & Stabilize: Mobile-first UI polish, advanced search filters, basic cancellation policies, initial MatchListings board. Start I18n (Arabic, French).
+PostGIS advanced queries, refined UI components, NotificationSvc enhancements. String extraction for I18n.
+Q1 2026
+Collaboration & Engagement: Match chatrooms (WebSocket), full Review & Rating system (with moderation), advanced venue pricing rules.
+ChatSvc (NestJS + WebSockets + Redis Pub/Sub), expanded UserSvc/BookingSvc logic. Robust admin panel for moderation.
+Q2 2026
+Scale & Insight: Initial Analytics Dashboards (venue KPIs), API for large venues/partners (read-only). Evaluate search engine switch (trigger: p95 >250ms / 2M rows). Explore K8s.
+Prometheus/Grafana setup, SearchSvc exploration (Typesense v0.24.x / Meilisearch), API versioning, load testing at scale.
+Q3 2026
+Expansion Prep: Multi-city rollout planning. Enhanced admin tools. Evaluate message broker switch (trigger: >5M events/day or >50k chat listeners). Potential dedicated PricingSvc exploration.
+Refine deployment strategies (K8s), robust configuration management. PaymentSvc enhancements for payouts (if applicable).
+
+17. Open-Source Compliance Strategy
+	•	Maintain OPEN_SOURCE_THIRD_PARTY.md or similar in each repository, listing direct and significant transitive dependencies, versions, and licences.
+	•	Automated licence compatibility checker in CI (e.g., FOSSA CLI, OSV-Scanner).
+	•	Publish SBOMs (CycloneDX format via Syft) as GitHub Release assets for each container image.
+	•	Review new dependencies for licence compatibility before integration.
+	•	AGPL Components (e.g., Cal.com Payments module, MinIO Gateway if used):
+	◦	Hosting unmodified binaries provided by the original project generally avoids the source code distribution trigger for your own code.
+	◦	If forked/modified: The source code of those modifications (and potentially the linked work, depending on the nature of linkage and interpretation of AGPL) MUST be made available under AGPL to any user interacting with the modified service over a network.
+	◦	Network Interaction: This obligation applies even to internal microservice calls if the modified AGPL service is ultimately part of a system exposed to users/customers outside the same legal entity operating the service. This is a critical point for legal review.
+	◦	Private forks of AGPL software that are made publicly accessible (e.g., as part of a SaaS offering) without distributing the corresponding source code are a violation. This must be clearly documented and understood by legal and engineering teams.
+	•	No proprietary extensions that link against AGPL code unless the entire proprietary extension is also AGPL or a clear, well-documented separation is maintained as per AGPL guidelines (which can be complex). Dual-licensing for core platform extensions will be avoided to maintain full FOSS commitment.
+
+18. References
+	•	Next.js – MIT React framework.
+	•	NestJS – progressive Node.js back-end framework.
+	•	FullCalendar – MIT scheduling UI.
+	•	Cal.com – AGPL scheduling/payments infrastructure.
+	•	PostgreSQL – liberal OS licence.
+	•	RabbitMQ – MPL-2.0 broker.
+	•	Keycloak – Apache-2.0 IAM.
+	•	Tailwind CSS – MIT utility framework.
+	•	MinIO Server (Apache-2.0): Self-hosted object storage.
+	•	Typesense v0.24.x (Apache-2.0) / Meilisearch (MIT): Search engines.
+	•	Traefik (MIT) / Kong API Gateway OSS (Apache-2.0).
+	•	Prisma ORM (Apache-2.0).
+	•	Testcontainers (MIT), Playwright (Apache-2.0), k6 (AGPL-3.0).
+	•	Prometheus, Grafana, Loki, OpenTelemetry (all Apache-2.0).
+	•	Unleash (Apache-2.0 feature flags).
+	•	Syft (Apache-2.0 SBOM generator).
+	•	Pumba / LitmusChaos (Apache-2.0 chaos engineering).
+	•	Chrony (GPLv2 NTP implementation).
+	•	ADR GitHub template resources.
+
+19. Suggested Next Deliverables
+Deliverable
+Owner
+ETA
+PII Map & Data-Retention Matrix (GDPR Art. 30 compliance)
+Security Lead
+2 weeks
+Terraform sample for staging (Postgres, Redis, Traefik on Hetzner/Scaleway)
+DevOps Lead
+3 weeks
+ADR-001: Message Broker Choice (RabbitMQ then NATS/Kafka)
+Tech Lead
+3 weeks
+OpenAPI 3.1 spec (v1) for UserSvc, BookingSvc, VenueSvc
+Backend Lead
+4 weeks
+k6 load profile (150 rps search, 50 rps bookings) against staging
+QA Lead
+4 weeks
+Incident Response Playbook: Double-Booking Scenario
+SRE/Tech Lead
+5 weeks
+
+This concludes the PlayHub Product Design Document.
