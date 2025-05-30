@@ -34,8 +34,7 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode;
   }
 
   if (!authService.isAuthenticated() || !user) {
-    window.location.href = '/auth';
-    return null;
+    return <Auth />;
   }
 
   if (requiredRole && user?.role !== requiredRole) {
