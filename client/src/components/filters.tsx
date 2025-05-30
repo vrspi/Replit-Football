@@ -67,14 +67,14 @@ export default function Filters({ filters, onFiltersChange, onApplyFilters }: Fi
         <div className="mb-6">
           <Label className="text-sm font-medium text-gray-700 mb-3 block">Sport Type</Label>
           <Select 
-            value={filters.sportType || ''} 
-            onValueChange={(value) => updateFilter('sportType', value)}
+            value={filters.sportType || 'all'} 
+            onValueChange={(value) => updateFilter('sportType', value === 'all' ? undefined : value)}
           >
             <SelectTrigger>
               <SelectValue placeholder="All Sports" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Sports</SelectItem>
+              <SelectItem value="all">All Sports</SelectItem>
               <SelectItem value="football">Football</SelectItem>
               <SelectItem value="basketball">Basketball</SelectItem>
               <SelectItem value="tennis">Tennis</SelectItem>
@@ -107,14 +107,14 @@ export default function Filters({ filters, onFiltersChange, onApplyFilters }: Fi
         <div className="mb-6">
           <Label className="text-sm font-medium text-gray-700 mb-3 block">Distance</Label>
           <Select 
-            value={filters.distance?.toString() || ''} 
-            onValueChange={(value) => updateFilter('distance', value ? Number(value) : undefined)}
+            value={filters.distance?.toString() || 'any'} 
+            onValueChange={(value) => updateFilter('distance', value === 'any' ? undefined : Number(value))}
           >
             <SelectTrigger>
               <SelectValue placeholder="Any distance" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Any distance</SelectItem>
+              <SelectItem value="any">Any distance</SelectItem>
               <SelectItem value="5">Within 5km</SelectItem>
               <SelectItem value="10">Within 10km</SelectItem>
               <SelectItem value="25">Within 25km</SelectItem>
