@@ -10,15 +10,27 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 // Middleware to verify JWT token
 const authenticateToken = (req: any, res: any, next: any) => {
+  console.log('authenticateToken middleware called');
+  console.log('Headers:', JSON.stringify(req.headers));
+  
   const authHeader = req.headers['authorization'];
+  console.log('Authorization header:', authHeader);
+  
   const token = authHeader && authHeader.split(' ')[1];
+  console.log('Token extracted:', token ? 'Token present' : 'No token');
 
   if (!token) {
-    return res.sendStatus(401);
+    console.log('No token provided, returning 401');
+    return res.status(401).json({ message: 'No authentication token provided' });
   }
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      console.error('Token verification failed:', err.message);
+      return res.status(403).json({ message: 'Invalid or expired token' });
+    }
+    
+    console.log('Token verified successfully for user:', user.id);
     req.user = user;
     next();
   });
@@ -38,22 +50,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.post("/api/auth/register", async (req, res) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+      console.log('Registration request body:', JSON.stringify(req.body));
+      console.log('Request headers:', JSON.stringify(req.headers));
       
-      // Check if user already exists
-      const existingUser = await storage.getUserByEmail(userData.email);
-      if (existingUser) {
-        return res.status(400).json({ message: "User already exists" });
+      // Check if request body is empty
+      if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: "Empty request body" });
       }
+
+      // Create a user object with default role if missing
+      const registrationData = {
+        ...req.body,
+        role: req.body.role || 'player' // Default to player if role is not provided
+      };
       
-      const user = await storage.createUser(userData);
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
-      
-      res.json({ 
-        user: { ...user, password: undefined }, 
-        token 
-      });
+      console.log('Processed registration data:', JSON.stringify(registrationData));
+
+      try {
+        // Manually validate required fields before schema validation
+        if (!registrationData.email) {
+          return res.status(400).json({ message: "Email is required" });
+        }
+        
+        if (!registrationData.username) {
+          return res.status(400).json({ message: "Username is required" });
+        }
+        
+        if (!registrationData.password) {
+          return res.status(400).json({ message: "Password is required" });
+        }
+        
+        const userData = insertUserSchema.parse(registrationData);
+        console.log('Validated user data:', JSON.stringify(userData));
+        
+        // Check if user already exists
+        const existingUser = await storage.getUserByEmail(userData.email);
+        if (existingUser) {
+          return res.status(400).json({ message: "User already exists" });
+        }
+        
+        // Check if username is taken
+        const existingUsername = await storage.getUserByUsername(userData.username);
+        if (existingUsername) {
+          return res.status(400).json({ message: "Username already taken" });
+        }
+        
+        const user = await storage.createUser(userData);
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+        
+        res.json({ 
+          user: { ...user, password: undefined }, 
+          token 
+        });
+      } catch (validationError: any) {
+        console.error('Validation error:', validationError);
+        return res.status(400).json({ 
+          message: "Validation error", 
+          details: validationError.errors || validationError.message 
+        });
+      }
     } catch (error: any) {
+      console.error('Registration error:', error);
       res.status(400).json({ message: error.message });
     }
   });
@@ -84,13 +141,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", authenticateToken, async (req: any, res) => {
+    console.log('GET /api/auth/me called, user ID from token:', req.user?.id);
+    
     try {
+      console.log('Looking up user in database, ID:', req.user.id);
       const user = await storage.getUser(req.user.id);
+      
       if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        console.log('User not found in database, ID:', req.user.id);
+        return res.status(404).json({ message: "User not found in database" });
       }
+      
+      console.log('User found:', user.id, user.email);
       res.json({ ...user, password: undefined });
     } catch (error: any) {
+      console.error('Error in /api/auth/me:', error.message);
       res.status(400).json({ message: error.message });
     }
   });

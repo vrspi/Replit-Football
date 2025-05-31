@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { config } from "../config";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -12,15 +13,57 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const fullUrl = `${config.apiBaseUrl}${url}`;
+  console.log(`API Request: ${method} ${fullUrl}`);
+  
+  if (data) {
+    console.log('Request data:', JSON.stringify(data));
+  }
+  
+  try {
+    // Get auth token from localStorage for all requests
+    const token = localStorage.getItem('auth_token');
+    
+    // Prepare headers with authentication if token exists
+    const headers: Record<string, string> = {};
+    
+    if (data) {
+      headers['Content-Type'] = 'application/json';
+    }
+    
+    if (token) {
+      console.log('Including auth token in request');
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      console.log('No auth token available for request');
+    }
+    
+    const res = await fetch(fullUrl, {
+      method,
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
 
-  await throwIfResNotOk(res);
-  return res;
+    console.log(`Response status: ${res.status} ${res.statusText}`);
+    
+    if (!res.ok) {
+      let errorText;
+      try {
+        const errorData = await res.json();
+        console.error('Error response:', errorData);
+        errorText = JSON.stringify(errorData);
+      } catch (e) {
+        errorText = await res.text();
+      }
+      throw new Error(`${res.status}: ${errorText}`);
+    }
+    
+    return res;
+  } catch (error) {
+    console.error('API request failed:', error);
+    throw error;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -29,9 +72,24 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
+    // Get auth token from localStorage for all query requests
+    const token = localStorage.getItem('auth_token');
+    
+    // Prepare request options with authentication token if available
+    const requestOptions: RequestInit = {
       credentials: "include",
-    });
+      headers: {}
+    };
+    
+    // Add auth token if available
+    if (token) {
+      requestOptions.headers = {
+        'Authorization': `Bearer ${token}`
+      };
+      console.log('Including auth token in React Query request');
+    }
+    
+    const res = await fetch(`${config.apiBaseUrl}${queryKey[0]}` as string, requestOptions);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

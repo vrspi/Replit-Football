@@ -1,31 +1,89 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CalendarCheck, DollarSign, TrendingUp, Building2, Plus, Edit, Pause, Calendar, User } from "lucide-react";
+import { CalendarCheck, DollarSign, TrendingUp, Building2, Plus, Edit, Pause, Calendar, User as UserIcon } from "lucide-react";
 import { authService } from "@/lib/auth";
-import type { VenueStats } from "@/lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import type { VenueStats, User, Venue } from "@/lib/types";
 
 export default function VenueDashboard() {
   const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null);
+  const [venueDialogOpen, setVenueDialogOpen] = useState(false);
+  const [newVenue, setNewVenue] = useState({
+    name: '',
+    description: '',
+    address: '',
+    city: '',
+    phone: '',
+    email: '',
+  });
+  
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const { data: user } = useQuery({
+  // Create venue mutation
+  const createVenueMutation = useMutation({
+    mutationFn: async (venueData: Omit<Venue, 'id' | 'ownerId' | 'amenities' | 'images' | 'verificationDocs' | 'status' | 'rating' | 'reviewCount'>) => {
+      const res = await apiRequest('POST', '/api/venues', {
+        ...venueData,
+        amenities: [],
+        images: [],
+        verificationDocs: []
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Venue Created",
+        description: "Your venue has been created successfully.",
+      });
+      setVenueDialogOpen(false);
+      // Reset form
+      setNewVenue({
+        name: '',
+        description: '',
+        address: '',
+        city: '',
+        phone: '',
+        email: '',
+      });
+      // Refresh venues list
+      queryClient.invalidateQueries({ queryKey: ['/api/venues'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Venue Creation Failed",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { data: user } = useQuery<any>({
     queryKey: ['/api/auth/me'],
     enabled: authService.isAuthenticated(),
   });
 
-  const { data: venues = [] } = useQuery({
+  const { data: venues = [], isLoading: venuesLoading, isError: venuesError, refetch: refetchVenues } = useQuery<any[]>({
     queryKey: ['/api/venues', { ownerId: user?.id }],
     queryFn: async () => {
-      const response = await fetch(`/api/venues?ownerId=${user?.id}`, {
-        headers: {
-          'Authorization': `Bearer ${authService.getToken()}`,
-        },
-      });
-      return response.json();
+      // Use apiRequest for consistency with token handling
+      const response = await apiRequest('GET', '/api/venues', undefined);
+      const data = await response.json();
+      console.log('Fetched venues:', data);
+      return data;
     },
     enabled: !!user?.id,
+    staleTime: 0, // Don't cache this data
+    refetchOnMount: true, // Always refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gets focus
   });
 
   const { data: fields = [] } = useQuery({
@@ -54,7 +112,13 @@ export default function VenueDashboard() {
     enabled: !!(selectedVenueId || venues[0]?.id),
   });
 
-  const currentVenue = venues.find((v: any) => v.id === (selectedVenueId || venues[0]?.id)) || venues[0];
+  // Debug venues data
+  console.log('Current venues data:', venues);
+  
+  // Get current venue (more safely)
+  const currentVenue = venues.length > 0 
+    ? (venues.find((v: any) => v.id === (selectedVenueId || venues[0]?.id)) || venues[0]) 
+    : null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -69,29 +133,53 @@ export default function VenueDashboard() {
             <Building2 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold mb-2">No venues yet</h3>
             <p className="text-gray-600 mb-6">Create your first venue to start accepting bookings</p>
-            <Button className="bg-blue-500 hover:bg-blue-600">
+            <Button 
+              className="bg-blue-500 hover:bg-blue-600"
+              onClick={() => setVenueDialogOpen(true)}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add Your First Venue
             </Button>
           </div>
         ) : (
           <>
-            {/* Venue Selector */}
-            {venues.length > 1 && (
-              <div className="mb-8">
-                <div className="flex space-x-4">
-                  {venues.map((venue: any) => (
-                    <Button
-                      key={venue.id}
-                      variant={venue.id === (selectedVenueId || venues[0]?.id) ? "default" : "outline"}
-                      onClick={() => setSelectedVenueId(venue.id)}
-                    >
-                      {venue.name}
-                    </Button>
-                  ))}
-                </div>
+            {/* Venue Header with Add Button */}
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-xl font-semibold">Your Venues</h2>
+              <Button 
+                className="bg-blue-500 hover:bg-blue-600"
+                onClick={() => setVenueDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add New Venue
+              </Button>
+            </div>
+            
+            {/* Venue Selector/Cards */}
+            <div className="mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {venues.map((venue: any) => (
+                  <Card 
+                    key={venue.id} 
+                    className={`cursor-pointer hover:shadow-md transition-shadow ${venue.id === (selectedVenueId || venues[0]?.id) ? 'border-2 border-blue-500' : ''}`}
+                    onClick={() => setSelectedVenueId(venue.id)}
+                  >
+                    <CardContent className="p-6">
+                      <h3 className="font-semibold text-lg mb-2">{venue.name}</h3>
+                      <p className="text-gray-600 text-sm mb-3">{venue.address}, {venue.city}</p>
+                      <div className="flex items-center justify-between">
+                        <Badge variant={venue.status === 'approved' ? 'default' : 'secondary'}>
+                          {venue.status || 'pending'}
+                        </Badge>
+                        <Button size="sm" variant="ghost">
+                          <Edit className="h-4 w-4 mr-1" /> Edit
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-            )}
+            </div>
 
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -245,7 +333,7 @@ export default function VenueDashboard() {
                           <div className="flex justify-between items-start">
                             <div>
                               <p className="font-medium flex items-center">
-                                <User className="h-4 w-4 mr-1" />
+                                <UserIcon className="h-4 w-4 mr-1" />
                                 {booking.player}
                               </p>
                               <p className="text-sm text-gray-600">{booking.field}</p>
@@ -266,6 +354,106 @@ export default function VenueDashboard() {
           </>
         )}
       </div>
+      
+      {/* Venue Creation Dialog */}
+      <Dialog open={venueDialogOpen} onOpenChange={setVenueDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add New Venue</DialogTitle>
+          </DialogHeader>
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            createVenueMutation.mutate(newVenue);
+          }}>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="name">Venue Name*</Label>
+                <Input 
+                  id="name" 
+                  value={newVenue.name}
+                  onChange={(e) => setNewVenue({...newVenue, name: e.target.value})}
+                  placeholder="Enter venue name"
+                  required
+                />
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea 
+                  id="description" 
+                  value={newVenue.description}
+                  onChange={(e) => setNewVenue({...newVenue, description: e.target.value})}
+                  placeholder="Describe your venue"
+                  rows={3}
+                />
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="address">Address*</Label>
+                <Input 
+                  id="address" 
+                  value={newVenue.address}
+                  onChange={(e) => setNewVenue({...newVenue, address: e.target.value})}
+                  placeholder="Full address"
+                  required
+                />
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="city">City*</Label>
+                <Input 
+                  id="city" 
+                  value={newVenue.city}
+                  onChange={(e) => setNewVenue({...newVenue, city: e.target.value})}
+                  placeholder="City"
+                  required
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input 
+                    id="phone" 
+                    value={newVenue.phone}
+                    onChange={(e) => setNewVenue({...newVenue, phone: e.target.value})}
+                    placeholder="Contact phone"
+                  />
+                </div>
+                
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input 
+                    id="email" 
+                    type="email"
+                    value={newVenue.email}
+                    onChange={(e) => setNewVenue({...newVenue, email: e.target.value})}
+                    placeholder="Contact email"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <DialogFooter>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setVenueDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                className="bg-blue-500 hover:bg-blue-600"
+                disabled={createVenueMutation.isPending}
+              >
+                {createVenueMutation.isPending ? 'Creating...' : 'Create Venue'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

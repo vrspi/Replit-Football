@@ -9,7 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
-import { authService } from "@/lib/auth";
+import { authService, AuthUser } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -73,7 +73,7 @@ export default function Auth() {
 
   const loginMutation = useMutation({
     mutationFn: authService.login.bind(authService),
-    onSuccess: (data) => {
+    onSuccess: (data: { user: AuthUser; token: string }) => {
       toast({
         title: "Login Successful",
         description: `Welcome back, ${data.user.username}!`,
@@ -99,18 +99,24 @@ export default function Auth() {
 
   const registerMutation = useMutation({
     mutationFn: authService.register.bind(authService),
-    onSuccess: (data) => {
+    onSuccess: (data: { user: AuthUser; token: string }) => {
       toast({
         title: "Registration Successful",
         description: `Welcome to PlayHub, ${data.user.username}!`,
       });
       
-      // Redirect based on user role
-      if (data.user.role === 'venue_owner') {
-        setLocation('/venue-dashboard');
-      } else {
-        setLocation('/search');
-      }
+      // Small delay to ensure token is properly saved before navigation
+      setTimeout(() => {
+        // Force refresh of auth state before redirecting
+        authService.getCurrentUser().then(() => {
+          // Redirect based on user role
+          if (data.user.role === 'venue_owner') {
+            setLocation('/venue-dashboard');
+          } else {
+            setLocation('/search');
+          }
+        });
+      }, 500);
     },
     onError: (error: any) => {
       toast({
@@ -127,6 +133,18 @@ export default function Auth() {
 
   const onRegisterSubmit = (data: RegisterForm) => {
     const { confirmPassword, ...registerData } = data;
+    console.log('Register form data:', registerData);
+    
+    // Make sure all required fields have values
+    if (!registerData.email || !registerData.username || !registerData.password || !registerData.role) {
+      toast({
+        title: "Form Incomplete",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     registerMutation.mutate(registerData);
   };
 
